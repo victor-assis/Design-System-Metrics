@@ -1,0 +1,57 @@
+name: Reusable DS Usage Analyzer
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '18'
+
+jobs:
+  analyze-ds-usage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+
+      - name: Checkout ds-usage-analyzer logic
+        uses: actions/checkout@v4
+        with:
+          repository: victor-assis/Design-System-Metrics
+          path: analyzer
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install analyzer dependencies
+        run: cd analyzer && npm i
+
+      - name: Run Web Scanner
+        run: node analyzer/scripts/scan-web.js
+
+      - name: Generate Final Report and Commit
+        run: node analyzer/scripts/generate-report.js
+
+      - name: Upload JSON Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-usage-report-json
+          path: analyzer/reports/final-report.json
+
+      - name: Upload Markdown Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-usage-report-md
+          path: analyzer/reports/final-report.md
+
+      - name: Comment on PR with report
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node analyzer/scripts/comment-pr.js
