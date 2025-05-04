@@ -1,0 +1,143 @@
+name: Reusable DS Usage Analyzer
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '18'
+
+jobs:
+  analyze-ds-usage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+
+      - name: Checkout ds-usage-analyzer logic
+        uses: actions/checkout@v4
+        with:
+          repository: victor-assis/Design-System-Metrics
+          path: analyzer
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install analyzer dependencies
+        run: cd analyzer && npm i
+
+      - name: Run Web Scanner
+        run: node analyzer/scripts/scan-web.js
+
+      - name: Generate Final Report and Commit
+        run: node analyzer/scripts/generate-report.js
+
+      - name: Upload JSON Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-usage-report-json
+          path: analyzer/reports/final-report.json
+
+      - name: Upload Markdown Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-usage-report-md
+          path: analyzer/reports/final-report.md
+
+      - name: Upload Score Badge
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-usage-score-badge
+          path: analyzer/reports/score-badge.svg
+
+      - name: Comment on PR with report
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './analyzer/reports/final-report.json';
+      
+            if (!fs.existsSync(path)) {
+              core.setFailed('❌ final-report.json não encontrado.');
+              return;
+            }
+      
+            const { web, score, version } = JSON.parse(fs.readFileSync(path, 'utf-8'));
+            const framework = web.framework || 'unknown';
+      
+            const count = obj => Object.values(obj || {}).reduce((acc, val) => acc + val, 0);
+            const formatSection = (title, obj) => {
+              if (!obj || Object.keys(obj).length === 0) return '';
+              const list = Object.entries(obj)
+                .sort((a, b) => b[1] - a[1])
+                .map(([key, val]) => `  - \`${key}\`: **${val}**`);
+              return `### ${title}\n${list.join('\n')}\n`;
+            };
+      
+            const renderPropsMarkdown = data => {
+              if (!data || Object.keys(data).length === 0) return '';
+              let md = `### 🧬 Props usadas por componente\n\n`;
+              for (const [component, props] of Object.entries(data)) {
+                md += `**${component}**\n`;
+                for (const [prop, values] of Object.entries(props)) {
+                  md += `- \`${prop}\`: ${values.map(v => `\`${v}\``).join(', ')}\n`;
+                }
+                md += '\n';
+              }
+              return md;
+            };
+      
+            const renderInternalsMarkdown = data => {
+              if (!data || Object.keys(data).length === 0) return '';
+              let md = `### 🧩 Componentes internos da aplicação\n\n`;
+              for (const [comp, info] of Object.entries(data)) {
+                md += `**\`${comp}\`** — usado **${info.count}x**\n`;
+                const used = info.dsComponentsUsed;
+                if (Object.keys(used).length === 0) {
+                  md += `- *(sem uso de componentes do design system)*\n\n`;
+                } else {
+                  for (const [dsComp, count] of Object.entries(used)) {
+                    md += `- \`${dsComp}\`: **${count}** uso(s)\n`;
+                  }
+                  md += '\n';
+                }
+              }
+              return md;
+            };
+      
+            const totalUsage =
+              count(web.components) + count(web.classes) + count(web.customProperties);
+      
+            let message = `## 📊 Design System Usage Summary\n`;
+            message += `### 🧠 Framework detectado: **${framework}**\n`;
+            message += `### 🔢 Índice de Adoção: **${score}%**\n`;
+            message += `### 📦 Versão do DS: \`${version}\`\n\n`;
+      
+            if (totalUsage > 0) {
+              message += `✅ **O Design System está sendo usado nesta aplicação.**\n\n`;
+              message += formatSection('🧩 Componentes (tags)', web.components);
+              if (framework !== 'angular') message += formatSection('🎨 Classes CSS', web.classes);
+              message += formatSection('🧪 CSS Custom Properties', web.customProperties);
+              message += formatSection('🔷 Diretivas Angular (atributos)', web.directives);
+              message += renderPropsMarkdown(web.propValues);
+              message += formatSection('🚫 Componentes fora do Design System', web.outsideComponents);
+              message += formatSection('🎯 Componentes de outros Design Systems detectados', web.externalDS);
+              message += renderInternalsMarkdown(web.internalComponents);
+            } else {
+              message += `❌ **Nenhum uso do Design System foi encontrado.**\n\n`;
+              message += `➡️ Considere instalar o DS com:\n\n\`\`\`sh\nnpm install ds\n\`\`\`\n\n`;
+              message += `Ou siga a documentação em: https://github.com/seu-org/ds`;
+            }
+      
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+      
