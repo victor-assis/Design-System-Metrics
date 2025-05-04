@@ -1,0 +1,24 @@
+{
+  "name": "ds-usage-analyzer",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "fast-glob": "^3.3.3"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.27.2",
+    "@babel/traverse": "^7.27.1",
+    "@octokit/rest": "^21.1.1",
+    "css-select": "^5.1.0",
+    "htmlparser2": "^10.0.0",
+    "parse5": "^7.3.0"
+  }
+}
